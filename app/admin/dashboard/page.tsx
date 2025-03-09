@@ -148,12 +148,12 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-primary text-primary-foreground p-4 shadow-md">
+    <div className="min-h-screen bg-gray-950">
+      <header className="bg-gray-900 text-white p-4 shadow-md">
         <div className="container mx-auto flex justify-between items-center">
           <h1 className="text-xl font-bold">Admin Support Portal</h1>
           <div className="flex items-center space-x-4">
-            <div className="flex items-center">
+            <div className="flex items-center text-gray-300">
               <User className="h-4 w-4 mr-2" />
               <span>{user?.name || "Admin"}</span>
             </div>
@@ -167,33 +167,33 @@ export default function AdminDashboard() {
 
       <main className="container mx-auto p-4">
         <div className="mb-6">
-          <h2 className="text-2xl font-bold mb-4">Support Cases Dashboard</h2>
+          <h2 className="text-2xl font-bold text-white mb-4">Support Cases Dashboard</h2>
 
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <Input
               placeholder="Search by case ID, driver name, or title..."
-              className="pl-10"
+              className="pl-10 bg-gray-900 border-gray-800 text-white placeholder:text-gray-500"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <Card>
+            <Card className="bg-gray-900 border-gray-800">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-medium tracking-tight">Total Cases</CardTitle>
+                <CardTitle className="text-lg font-medium tracking-tight text-white">Total Cases</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-semibold tracking-tight">{cases.length}</p>
+                <p className="text-3xl font-semibold tracking-tight text-white">{cases.length}</p>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="bg-gray-900 border-gray-800">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-medium tracking-tight">Open Cases</CardTitle>
+                <CardTitle className="text-lg font-medium tracking-tight text-white">Open Cases</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-semibold tracking-tight">
+                <p className="text-3xl font-semibold tracking-tight text-white">
                   {cases.filter((c) => c.status === "open").length}
                 </p>
               </CardContent>
@@ -202,10 +202,10 @@ export default function AdminDashboard() {
         </div>
 
         <Tabs defaultValue="all" className="w-full">
-          <TabsList className="mb-4">
-            <TabsTrigger value="all">All Cases</TabsTrigger>
-            <TabsTrigger value="open">Open Cases</TabsTrigger>
-            <TabsTrigger value="closed">Closed Cases</TabsTrigger>
+          <TabsList className="mb-4 bg-gray-900">
+            <TabsTrigger value="all" className="text-gray-300 data-[state=active]:bg-gray-800">All Cases</TabsTrigger>
+            <TabsTrigger value="open" className="text-gray-300 data-[state=active]:bg-gray-800">Open Cases</TabsTrigger>
+            <TabsTrigger value="closed" className="text-gray-300 data-[state=active]:bg-gray-800">Closed Cases</TabsTrigger>
           </TabsList>
 
           {["all", "open", "closed"].map((tabValue) => (
@@ -213,14 +213,14 @@ export default function AdminDashboard() {
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead>
-                    <tr className="bg-gray-100">
-                      <th className="p-3 text-left">Case ID</th>
-                      <th className="p-3 text-left">Driver</th>
-                      <th className="p-3 text-left">Title</th>
-                      <th className="p-3 text-left">Status</th>
-                      <th className="p-3 text-left">Created</th>
-                      <th className="p-3 text-left">Last Updated</th>
-                      <th className="p-3 text-left">Actions</th>
+                    <tr className="bg-gray-900">
+                      <th className="p-3 text-left text-gray-300">Case ID</th>
+                      <th className="p-3 text-left text-gray-300">Driver</th>
+                      <th className="p-3 text-left text-gray-300">Title</th>
+                      <th className="p-3 text-left text-gray-300">Status</th>
+                      <th className="p-3 text-left text-gray-300">Created</th>
+                      <th className="p-3 text-left text-gray-300">Last Updated</th>
+                      <th className="p-3 text-left text-gray-300">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -232,25 +232,25 @@ export default function AdminDashboard() {
                         return true
                       })
                       .map((supportCase) => (
-                        <tr key={supportCase.id} className="border-b hover:bg-gray-50">
-                          <td className="p-3">{supportCase.id}</td>
+                        <tr key={supportCase.id} className="border-b border-gray-800 hover:bg-gray-900">
+                          <td className="p-3 text-gray-300">{supportCase.id}</td>
                           <td className="p-3 tracking-tight">
                             <div>
-                              <div className="font-medium">{supportCase.driverName}</div>
-                              <div className="text-xs text-muted-foreground font-normal">{supportCase.driverId}</div>
+                              <div className="font-medium text-white">{supportCase.driverName}</div>
+                              <div className="text-xs text-gray-400">{supportCase.driverId}</div>
                             </div>
                           </td>
-                          <td className="p-3">{supportCase.title}</td>
+                          <td className="p-3 text-gray-300">{supportCase.title}</td>
                           <td className="p-3">
                             <Badge variant={supportCase.status === "open" ? "default" : "secondary"}>
                               {supportCase.status}
                             </Badge>
                           </td>
-                          <td className="p-3 whitespace-nowrap">{formatDate(supportCase.createdAt)}</td>
-                          <td className="p-3 whitespace-nowrap">{formatDate(supportCase.updatedAt)}</td>
+                          <td className="p-3 whitespace-nowrap text-gray-300">{formatDate(supportCase.createdAt)}</td>
+                          <td className="p-3 whitespace-nowrap text-gray-300">{formatDate(supportCase.updatedAt)}</td>
                           <td className="p-3">
                             <Link href={`/admin/case/${supportCase.id}`}>
-                              <Button size="sm" variant="outline">
+                              <Button size="sm" variant="outline" className="border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800">
                                 <MessageSquare className="h-4 w-4 mr-2" />
                                 View
                               </Button>
@@ -268,7 +268,7 @@ export default function AdminDashboard() {
                   return true
                 }).length === 0 && (
                   <div className="text-center p-8">
-                    <p className="text-muted-foreground">No cases found.</p>
+                    <p className="text-gray-400">No cases found.</p>
                   </div>
                 )}
               </div>
