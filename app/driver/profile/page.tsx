@@ -70,21 +70,21 @@ export default function DriverProfile() {
         <div className="space-y-6">
           <Card className="bg-gray-900 border-gray-800">
             <CardHeader>
-              <CardTitle>Account Information</CardTitle>
+              <CardTitle className="text-white">Account Information</CardTitle>
               <CardDescription className="text-gray-400">Your personal information</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-col space-y-1">
                 <span className="text-sm text-gray-400">Name</span>
-                <span className="font-medium">{user?.name || "Driver Name"}</span>
+                <span className="font-medium text-white">{user?.name || "Driver Name"}</span>
               </div>
               <div className="flex flex-col space-y-1">
                 <span className="text-sm text-gray-400">Email</span>
-                <span className="font-medium">{user?.email || "driver@example.com"}</span>
+                <span className="font-medium text-white">{user?.email || "driver@example.com"}</span>
               </div>
               <div className="flex flex-col space-y-1">
                 <span className="text-sm text-gray-400">Driver ID</span>
-                <span className="font-medium">{user?.id || "D12345"}</span>
+                <span className="font-medium text-white">{user?.id || "D12345"}</span>
               </div>
               <div className="flex flex-col space-y-1">
                 <span className="text-sm text-gray-400">Role</span>
@@ -95,24 +95,24 @@ export default function DriverProfile() {
 
           <Card className="bg-gray-900 border-gray-800">
             <CardHeader>
-              <CardTitle>Account Settings</CardTitle>
+              <CardTitle className="text-white">Account Settings</CardTitle>
               <CardDescription className="text-gray-400">Manage your account preferences</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-col space-y-1">
                 <span className="text-sm text-gray-400">Notification Preferences</span>
-                <span className="font-medium">Email and Push Notifications</span>
+                <span className="font-medium text-white">Email and Push Notifications</span>
               </div>
               <div className="flex flex-col space-y-1">
                 <span className="text-sm text-gray-400">Language</span>
-                <span className="font-medium">English (US)</span>
+                <span className="font-medium text-white">English (US)</span>
               </div>
             </CardContent>
           </Card>
 
           <Card className="bg-gray-900 border-gray-800">
             <CardHeader>
-              <CardTitle>Account Actions</CardTitle>
+              <CardTitle className="text-white">Account Actions</CardTitle>
               <CardDescription className="text-gray-400">Manage your account</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
