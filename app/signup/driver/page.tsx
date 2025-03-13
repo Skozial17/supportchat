@@ -18,7 +18,8 @@ export default function DriverSignup() {
     email: "",
     password: "",
     confirmPassword: "",
-    phone: ""
+    phone: "",
+    company: "KozialTrans" // Default to KozialTrans
   })
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
@@ -133,6 +134,19 @@ export default function DriverSignup() {
                 value={formData.email}
                 onChange={handleChange}
                 required
+                className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="company" className="text-gray-300">Company</Label>
+              <Input
+                id="company"
+                name="company"
+                type="text"
+                value={formData.company}
+                onChange={handleChange}
+                required
+                disabled
                 className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
               />
             </div>

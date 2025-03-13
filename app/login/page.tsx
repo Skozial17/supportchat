@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -11,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { signIn } from "@/lib/auth"
 
 export default function Login() {
   const router = useRouter()
@@ -31,52 +31,51 @@ export default function Login() {
     })
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError("")
 
-    // Mock authentication - in a real app, this would call an API
-    setTimeout(() => {
-      setIsLoading(false)
-
+    try {
       // Simple validation
       if (!formData.email || !formData.password) {
         setError("Please enter both email and password")
         return
       }
 
-      // Mock credentials for demo purposes
-      const validCredentials = {
-        driver: { email: "driver@example.com", password: "password" },
-        admin: { email: "admin@example.com", password: "password" },
-      }
+      const result = await signIn({
+        email: formData.email,
+        password: formData.password
+      })
 
-      if (
-        formData.email === validCredentials[role as keyof typeof validCredentials].email &&
-        formData.password === validCredentials[role as keyof typeof validCredentials].password
-      ) {
-        // Store user info in localStorage (use a proper auth solution in production)
-        localStorage.setItem(
-          "user",
-          JSON.stringify({
-            email: formData.email,
-            role: role,
-            id: role === "driver" ? "D12345" : "A98765",
-            name: role === "driver" ? "John Driver" : "Admin User",
-          }),
-        )
+      if (result.success && result.user) {
+        // Check if user role matches the requested role
+        if ((role === 'admin' && result.user.role !== 'admin') || 
+            (role === 'driver' && result.user.role !== 'driver')) {
+          setError(`Invalid credentials for ${role} login`)
+          return
+        }
+
+        // Store user info in localStorage
+        localStorage.setItem('user', JSON.stringify({
+          ...result.user,
+          name: result.user.email?.split('@')[0] || 'User'
+        }))
 
         // Redirect based on role
-        if (role === "driver") {
-          router.push("/driver/dashboard")
+        if (result.user.role === 'driver') {
+          router.push('/driver/dashboard')
         } else {
-          router.push("/admin/dashboard")
+          router.push('/admin/dashboard')
         }
       } else {
-        setError("Invalid email or password")
+        setError(result.message || 'Invalid email or password')
       }
-    }, 1000)
+    } catch (error: any) {
+      setError(error.message || 'An error occurred during login')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -110,7 +109,7 @@ export default function Login() {
                 id="email"
                 name="email"
                 type="email"
-                placeholder={role === "driver" ? "driver@example.com" : "admin@example.com"}
+                placeholder="Enter your email"
                 value={formData.email}
                 onChange={handleChange}
                 required
@@ -133,12 +132,6 @@ export default function Login() {
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="flex justify-center">
-          <p className="text-sm text-muted-foreground">
-            For demo purposes, use:
-            {role === "driver" ? " driver@example.com / password" : " admin@example.com / password"}
-          </p>
-        </CardFooter>
       </Card>
     </div>
   )
