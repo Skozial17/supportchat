@@ -22,6 +22,14 @@ service cloud.firestore {
       return !exists(/databases/$(database)/documents/admins/admin_sentinel);
     }
 
+    // Companies collection rules
+    match /companies/{companyId} {
+      // Allow read for any authenticated user (needed for driver registration)
+      allow read: if isAuthenticated();
+      // Only admins can create, update, or delete companies
+      allow create, update, delete: if isAdmin();
+    }
+
     // Cases collection rules
     match /cases/{caseId} {
       // Allow read if user is admin or if the case belongs to the authenticated driver
@@ -57,7 +65,10 @@ service cloud.firestore {
     
     // Drivers collection
     match /drivers/{userId} {
+      // Allow read for admin and for listing company drivers
       allow read: if isAdmin() || request.auth.uid == userId;
+      // Allow querying drivers by company
+      allow list: if isAuthenticated();
       allow write: if isAdmin();
     }
     

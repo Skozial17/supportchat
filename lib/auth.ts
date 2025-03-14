@@ -13,7 +13,9 @@ import {
   getDocs,
   deleteDoc,
   serverTimestamp,
-  orderBy
+  orderBy,
+  addDoc,
+  updateDoc
 } from 'firebase/firestore'
 import { auth, db } from './firebase'
 
@@ -367,5 +369,159 @@ export async function getSupportCases() {
   } catch (error) {
     console.error('Error getting support cases:', error)
     return []
+  }
+}
+
+export type Company = {
+  id: string
+  name: string
+  code: string // Unique company identifier (e.g., AKOTL)
+  adminEmail: string
+  isActive: boolean
+  createdAt: Date
+  updatedAt: Date
+  phone?: string
+  address?: string
+  contactPerson?: string
+  drivers?: Array<{
+    id: string
+    name: string
+    email: string
+  }>
+}
+
+// Function to create a new company
+export async function createCompany(data: {
+  name: string
+  code: string
+  adminEmail: string
+  phone?: string
+  address?: string
+  contactPerson?: string
+}) {
+  try {
+    // Check if company code already exists
+    const companyRef = collection(db, 'companies')
+    const q = query(companyRef, where('code', '==', data.code.toUpperCase()))
+    const snapshot = await getDocs(q)
+
+    if (!snapshot.empty) {
+      return { success: false, message: 'Company code already exists' }
+    }
+
+    // Create new company
+    const companyData = {
+      name: data.name,
+      code: data.code.toUpperCase(), // Store code in uppercase
+      adminEmail: data.adminEmail,
+      phone: data.phone || null,
+      address: data.address || null,
+      contactPerson: data.contactPerson || null,
+      isActive: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }
+
+    const docRef = await addDoc(collection(db, 'companies'), companyData)
+    
+    return { 
+      success: true, 
+      companyId: docRef.id,
+      message: 'Company created successfully' 
+    }
+  } catch (error) {
+    console.error('Error creating company:', error)
+    return { success: false, message: 'Failed to create company' }
+  }
+}
+
+// Function to get company by code
+export async function getCompanyByCode(code: string) {
+  try {
+    const companyRef = collection(db, 'companies')
+    const q = query(companyRef, where('code', '==', code.toUpperCase()))
+    const snapshot = await getDocs(q)
+
+    if (snapshot.empty) {
+      return { success: false, message: 'Company not found' }
+    }
+
+    const companyData = {
+      id: snapshot.docs[0].id,
+      ...snapshot.docs[0].data()
+    } as Company
+
+    return { success: true, company: companyData }
+  } catch (error) {
+    console.error('Error getting company:', error)
+    return { success: false, message: 'Failed to get company' }
+  }
+}
+
+// Function to update company status
+export async function updateCompanyStatus(companyId: string, isActive: boolean) {
+  try {
+    const companyRef = doc(db, 'companies', companyId)
+    await updateDoc(companyRef, {
+      isActive,
+      updatedAt: serverTimestamp()
+    })
+
+    return { success: true, message: 'Company status updated successfully' }
+  } catch (error) {
+    console.error('Error updating company status:', error)
+    return { success: false, message: 'Failed to update company status' }
+  }
+}
+
+// Function to get all companies
+export async function getAllCompanies() {
+  try {
+    const companiesRef = collection(db, 'companies')
+    const q = query(companiesRef, orderBy('createdAt', 'desc'))
+    const snapshot = await getDocs(q)
+
+    const companies = await Promise.all(snapshot.docs.map(async doc => {
+      const companyData = {
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date()
+      } as Company
+
+      // Get drivers for this company
+      const driversRef = collection(db, 'drivers')
+      const driversQuery = query(driversRef, where('company', '==', companyData.name))
+      const driversSnapshot = await getDocs(driversQuery)
+      
+      companyData.drivers = driversSnapshot.docs.map(driverDoc => ({
+        id: driverDoc.id,
+        name: driverDoc.data().name,
+        email: driverDoc.data().email
+      }))
+
+      return companyData
+    }))
+
+    return { success: true, companies }
+  } catch (error) {
+    console.error('Error getting companies:', error)
+    return { success: false, message: 'Failed to get companies' }
+  }
+}
+
+// Function to update driver's company
+export async function updateDriverCompany(driverId: string, companyName: string) {
+  try {
+    const driverRef = doc(db, 'drivers', driverId)
+    await updateDoc(driverRef, {
+      company: companyName,
+      updatedAt: serverTimestamp()
+    })
+
+    return { success: true, message: 'Driver company updated successfully' }
+  } catch (error) {
+    console.error('Error updating driver company:', error)
+    return { success: false, message: 'Failed to update driver company' }
   }
 } 

@@ -6,18 +6,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Users, Truck, AlertCircle, LogOut } from "lucide-react"
-import { SupportCase, PendingDriver, ActiveDriver, approveDriver, getSupportCases } from "@/lib/auth"
+import { Users, AlertCircle, LogOut, Building2 } from "lucide-react"
+import { SupportCase, PendingDriver, approveDriver, getSupportCases, Company, getAllCompanies, createCompany, updateCompanyStatus } from "@/lib/auth"
 import { collection, getDocs, query, orderBy, doc, updateDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { Input } from "@/components/ui/input"
 
 export default function AdminDashboard() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [pendingDrivers, setPendingDrivers] = useState<PendingDriver[]>([])
-  const [activeDrivers, setActiveDrivers] = useState<ActiveDriver[]>([])
   const [supportCases, setSupportCases] = useState<SupportCase[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [newCompany, setNewCompany] = useState({ name: '', code: '', adminEmail: '' })
+  const [companyError, setCompanyError] = useState('')
 
   useEffect(() => {
     // Check if user is logged in and is admin
@@ -35,6 +38,7 @@ export default function AdminDashboard() {
 
     setUser(parsedUser)
     loadData()
+    loadCompanies()
   }, [router])
 
   const loadData = async () => {
@@ -47,15 +51,6 @@ export default function AdminDashboard() {
         ...doc.data()
       })) as PendingDriver[]
       setPendingDrivers(pendingDriversData)
-
-      // Load active drivers
-      const activeDriversRef = collection(db, "drivers")
-      const activeDriversSnapshot = await getDocs(activeDriversRef)
-      const activeDriversData = activeDriversSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as ActiveDriver[]
-      setActiveDrivers(activeDriversData)
 
       // Load support cases
       const casesRef = collection(db, 'cases')
@@ -77,6 +72,46 @@ export default function AdminDashboard() {
       console.error("Error loading data:", error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadCompanies = async () => {
+    try {
+      const result = await getAllCompanies()
+      if (result.success) {
+        setCompanies(result.companies)
+      }
+    } catch (error) {
+      console.error("Error loading companies:", error)
+    }
+  }
+
+  const handleCreateCompany = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setCompanyError('')
+
+    try {
+      const result = await createCompany(newCompany)
+      if (result.success) {
+        setNewCompany({ name: '', code: '', adminEmail: '' })
+        loadCompanies()
+      } else {
+        setCompanyError(result.message || 'Failed to create company')
+      }
+    } catch (error) {
+      console.error("Error creating company:", error)
+      setCompanyError('An error occurred while creating the company')
+    }
+  }
+
+  const handleToggleCompanyStatus = async (companyId: string, isActive: boolean) => {
+    try {
+      const result = await updateCompanyStatus(companyId, !isActive)
+      if (result.success) {
+        loadCompanies()
+      }
+    } catch (error) {
+      console.error("Error updating company status:", error)
     }
   }
 
@@ -127,16 +162,6 @@ export default function AdminDashboard() {
     )
   }
 
-  // Group active drivers by company
-  const driversByCompany = activeDrivers.reduce((acc, driver) => {
-    const company = driver.company || "Unknown"
-    if (!acc[company]) {
-      acc[company] = []
-    }
-    acc[company].push(driver)
-    return acc
-  }, {} as Record<string, ActiveDriver[]>)
-
   return (
     <div className="min-h-screen bg-gray-950 p-4">
       <div className="container mx-auto">
@@ -158,13 +183,13 @@ export default function AdminDashboard() {
               <AlertCircle className="h-4 w-4 mr-2" />
               Support Cases
             </TabsTrigger>
+            <TabsTrigger value="companies" className="data-[state=active]:bg-primary">
+              <Building2 className="h-4 w-4 mr-2" />
+              Companies
+            </TabsTrigger>
             <TabsTrigger value="pending" className="data-[state=active]:bg-primary">
               <Users className="h-4 w-4 mr-2" />
               Pending Drivers
-            </TabsTrigger>
-            <TabsTrigger value="active" className="data-[state=active]:bg-primary">
-              <Truck className="h-4 w-4 mr-2" />
-              Active Drivers
             </TabsTrigger>
           </TabsList>
 
@@ -177,52 +202,240 @@ export default function AdminDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {supportCases.length === 0 ? (
-                    <p className="text-gray-400">No support cases found.</p>
-                  ) : (
-                    supportCases.map((supportCase) => (
-                      <div 
-                        key={supportCase.id} 
-                        className="cursor-pointer transition-colors hover:bg-gray-700/50"
-                        onClick={() => router.push(`/admin/case/${supportCase.id}`)}
-                      >
-                        <Card className="bg-gray-800 border-gray-700">
-                          <CardContent className="pt-6">
-                            <div className="flex items-start justify-between">
-                              <div className="space-y-1">
-                                <div className="flex items-center space-x-2">
-                                  <h3 className="font-medium text-white">
-                                    {supportCase.title}
-                                  </h3>
-                                  <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
-                                    {supportCase.status}
-                                  </Badge>
-                                </div>
-                                <p className="text-sm text-gray-400">
-                                  Driver: {supportCase.driverName} • {supportCase.driverEmail} • {supportCase.company}
-                                </p>
-                                <p className="text-sm text-gray-300 mt-2 whitespace-pre-line">
-                                  {supportCase.description}
-                                </p>
-                                <p className="text-xs text-gray-500 mt-2">
-                                  Created: {formatDate(supportCase.createdAt)}
-                                </p>
+                <div className="mb-4">
+                  <Tabs defaultValue="open" className="w-full">
+                    <TabsList className="bg-gray-800 w-full justify-start">
+                      <TabsTrigger value="open">Open</TabsTrigger>
+                      <TabsTrigger value="closed">Closed</TabsTrigger>
+                      <TabsTrigger value="all">All</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="all">
+                      <div className="space-y-4 mt-4">
+                        {supportCases.length === 0 ? (
+                          <p className="text-gray-400">No support cases found.</p>
+                        ) : (
+                          supportCases.map((supportCase) => (
+                            <div 
+                              key={supportCase.id} 
+                              className="cursor-pointer transition-colors hover:bg-gray-700/50"
+                              onClick={() => router.push(`/admin/case/${supportCase.id}`)}
+                            >
+                              <Card className="bg-gray-800 border-gray-700">
+                                <CardContent className="pt-6">
+                                  <div className="flex items-start justify-between">
+                                    <div className="space-y-1">
+                                      <div className="flex items-center space-x-2">
+                                        <h3 className="font-medium text-white">
+                                          {supportCase.title}
+                                        </h3>
+                                        <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
+                                          {supportCase.status}
+                                        </Badge>
+                                      </div>
+                                      <p className="text-sm text-gray-400">
+                                        Driver: {supportCase.driverName} • {supportCase.driverEmail} • {supportCase.company}
+                                      </p>
+                                      <p className="text-sm text-gray-300 mt-2 whitespace-pre-line">
+                                        {supportCase.description}
+                                      </p>
+                                      <p className="text-xs text-gray-500 mt-2">
+                                        Created: {formatDate(supportCase.createdAt)}
+                                      </p>
+                                    </div>
+                                    {supportCase.status === "open" && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleCloseCase(supportCase.id);
+                                        }}
+                                        className="ml-4"
+                                      >
+                                        Close Case
+                                      </Button>
+                                    )}
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="open">
+                      <div className="space-y-4 mt-4">
+                        {supportCases.filter(c => c.status === "open").length === 0 ? (
+                          <p className="text-gray-400">No open cases found.</p>
+                        ) : (
+                          supportCases
+                            .filter(c => c.status === "open")
+                            .map((supportCase) => (
+                              <div 
+                                key={supportCase.id} 
+                                className="cursor-pointer transition-colors hover:bg-gray-700/50"
+                                onClick={() => router.push(`/admin/case/${supportCase.id}`)}
+                              >
+                                <Card className="bg-gray-800 border-gray-700">
+                                  <CardContent className="pt-6">
+                                    <div className="flex items-start justify-between">
+                                      <div className="space-y-1">
+                                        <div className="flex items-center space-x-2">
+                                          <h3 className="font-medium text-white">
+                                            {supportCase.title}
+                                          </h3>
+                                          <Badge variant="destructive">
+                                            {supportCase.status}
+                                          </Badge>
+                                        </div>
+                                        <p className="text-sm text-gray-400">
+                                          Driver: {supportCase.driverName} • {supportCase.driverEmail} • {supportCase.company}
+                                        </p>
+                                        <p className="text-sm text-gray-300 mt-2 whitespace-pre-line">
+                                          {supportCase.description}
+                                        </p>
+                                        <p className="text-xs text-gray-500 mt-2">
+                                          Created: {formatDate(supportCase.createdAt)}
+                                        </p>
+                                      </div>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleCloseCase(supportCase.id);
+                                        }}
+                                        className="ml-4"
+                                      >
+                                        Close Case
+                                      </Button>
+                                    </div>
+                                  </CardContent>
+                                </Card>
                               </div>
-                              {supportCase.status === "open" && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleCloseCase(supportCase.id)}
-                                  className="ml-4"
-                                >
-                                  Close Case
-                                </Button>
+                            ))
+                        )}
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="closed">
+                      <div className="space-y-4 mt-4">
+                        {supportCases.filter(c => c.status === "closed").length === 0 ? (
+                          <p className="text-gray-400">No closed cases found.</p>
+                        ) : (
+                          supportCases
+                            .filter(c => c.status === "closed")
+                            .map((supportCase) => (
+                              <div 
+                                key={supportCase.id} 
+                                className="cursor-pointer transition-colors hover:bg-gray-700/50"
+                                onClick={() => router.push(`/admin/case/${supportCase.id}`)}
+                              >
+                                <Card className="bg-gray-800 border-gray-700">
+                                  <CardContent className="pt-6">
+                                    <div className="flex items-start justify-between">
+                                      <div className="space-y-1">
+                                        <div className="flex items-center space-x-2">
+                                          <h3 className="font-medium text-white">
+                                            {supportCase.title}
+                                          </h3>
+                                          <Badge variant="secondary">
+                                            {supportCase.status}
+                                          </Badge>
+                                        </div>
+                                        <p className="text-sm text-gray-400">
+                                          Driver: {supportCase.driverName} • {supportCase.driverEmail} • {supportCase.company}
+                                        </p>
+                                        <p className="text-sm text-gray-300 mt-2 whitespace-pre-line">
+                                          {supportCase.description}
+                                        </p>
+                                        <p className="text-xs text-gray-500 mt-2">
+                                          Created: {formatDate(supportCase.createdAt)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="companies">
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-white">Companies</CardTitle>
+                <CardDescription className="text-gray-400">
+                  Manage registered companies
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-6">
+                  <Button
+                    onClick={() => router.push('/admin/company/new')}
+                    className="bg-primary text-white w-full md:w-auto"
+                  >
+                    Register New Company
+                  </Button>
+                </div>
+
+                <div className="space-y-4">
+                  {companies.length === 0 ? (
+                    <p className="text-gray-400">No companies registered yet.</p>
+                  ) : (
+                    companies.map((company) => (
+                      <Card key={company.id} className="bg-gray-800 border-gray-700">
+                        <CardContent className="pt-6">
+                          <div className="flex items-start justify-between">
+                            <div className="space-y-1">
+                              <div className="flex items-center space-x-2">
+                                <h3 className="font-medium text-white">
+                                  {company.name}
+                                </h3>
+                                <Badge variant={company.isActive ? "default" : "secondary"}>
+                                  {company.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-gray-400">
+                                Code: {company.code}
+                              </p>
+                              <p className="text-sm text-gray-400">
+                                Admin: {company.adminEmail}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Created: {formatDate(company.createdAt)}
+                              </p>
+                              {company.drivers && company.drivers.length > 0 && (
+                                <div className="mt-4">
+                                  <h4 className="text-sm font-medium text-gray-300 mb-2">Active Drivers:</h4>
+                                  <div className="space-y-2">
+                                    {company.drivers.map((driver) => (
+                                      <div key={driver.id} className="text-sm text-gray-400 flex items-center space-x-2">
+                                        <span>{driver.name}</span>
+                                        <span className="text-gray-500">•</span>
+                                        <span className="text-gray-500">{driver.email}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
                               )}
                             </div>
-                          </CardContent>
-                        </Card>
-                      </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleToggleCompanyStatus(company.id, company.isActive)}
+                              className="ml-4"
+                            >
+                              {company.isActive ? "Deactivate" : "Activate"}
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
                     ))
                   )}
                 </div>
@@ -235,29 +448,34 @@ export default function AdminDashboard() {
               <CardHeader>
                 <CardTitle className="text-white">Pending Drivers</CardTitle>
                 <CardDescription className="text-gray-400">
-                  Review and approve new driver applications
+                  Approve or reject pending driver registrations
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {pendingDrivers.length === 0 ? (
-                    <p className="text-gray-400">No pending drivers found.</p>
+                    <p className="text-gray-400">No pending driver registrations.</p>
                   ) : (
                     pendingDrivers.map((driver) => (
                       <Card key={driver.id} className="bg-gray-800 border-gray-700">
                         <CardContent className="pt-6">
                           <div className="flex items-start justify-between">
                             <div className="space-y-1">
-                              <h3 className="font-medium text-white">{driver.name}</h3>
+                              <h3 className="font-medium text-white">
+                                {driver.name}
+                              </h3>
                               <p className="text-sm text-gray-400">
-                                {driver.email} • {driver.phone}
+                                Email: {driver.email}
                               </p>
-                              <p className="text-sm text-gray-400">Company: {driver.company}</p>
+                              <p className="text-sm text-gray-400">
+                                Company Code: {driver.companyCode}
+                              </p>
                             </div>
                             <Button
-                              onClick={() => handleApproveDriver(driver.id)}
+                              variant="outline"
                               size="sm"
-                              className="bg-primary text-white hover:bg-primary/90"
+                              onClick={() => handleApproveDriver(driver.id)}
+                              className="ml-4"
                             >
                               Approve
                             </Button>
@@ -266,46 +484,6 @@ export default function AdminDashboard() {
                       </Card>
                     ))
                   )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="active">
-            <Card className="bg-gray-900 border-gray-800">
-              <CardHeader>
-                <CardTitle className="text-white">Active Drivers</CardTitle>
-                <CardDescription className="text-gray-400">
-                  View all approved drivers by company
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  {Object.entries(driversByCompany).map(([company, drivers]) => (
-                    <div key={company} className="space-y-4">
-                      <h3 className="text-lg font-medium text-white">{company}</h3>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        {drivers.map((driver) => (
-                          <Card key={driver.id} className="bg-gray-800 border-gray-700">
-                            <CardContent className="pt-6">
-                              <div className="space-y-1">
-                                <div className="flex items-center space-x-2">
-                                  <h4 className="font-medium text-white">{driver.name}</h4>
-                                  <Badge>Active</Badge>
-                                </div>
-                                <p className="text-sm text-gray-400">
-                                  {driver.email} • {driver.phone}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  Approved: {new Date(driver.approvedAt).toLocaleString()}
-                                </p>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </CardContent>
             </Card>
