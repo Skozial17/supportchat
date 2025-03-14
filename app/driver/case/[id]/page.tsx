@@ -8,13 +8,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Send, User, Bot } from "lucide-react"
 import Link from "next/link"
+import { db } from "@/lib/firebase"
+import { doc, getDoc, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc } from "firebase/firestore"
+import type { SupportCase } from "@/lib/auth"
 
 // Define the message structure
 type Message = {
   id: string
-  content: string
-  sender: "system" | "user"
-  timestamp: Date
+  text: string
+  sender: "system" | "driver" | "admin"
+  createdAt: Date
 }
 
 // Define the conversation flow steps
@@ -81,20 +84,17 @@ const conversationFlow: Record<string, ConversationStep> = {
 export default function CaseDetail() {
   const router = useRouter()
   const params = useParams()
-  const caseId = params.id as string
-
-  const [user, setUser] = useState<any>(null)
-  const [caseDetails, setCaseDetails] = useState<any>(null)
+  const [supportCase, setSupportCase] = useState<SupportCase | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [currentStep, setCurrentStep] = useState<string>("start")
   const [inputValue, setInputValue] = useState<string>("")
   const [isWaitingForInput, setIsWaitingForInput] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [newMessage, setNewMessage] = useState("")
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // Check if user is logged in
     const storedUser = localStorage.getItem("user")
     if (!storedUser) {
       router.push("/login?role=driver")
@@ -107,49 +107,59 @@ export default function CaseDetail() {
       return
     }
 
-    setUser(parsedUser)
+    loadCase()
+    const unsubscribe = subscribeToMessages()
+    return () => unsubscribe()
+  }, [params.id])
 
-    // Mock API call to get case details and messages
-    setTimeout(() => {
-      // Mock case details
-      const mockCase = {
-        id: caseId,
-        title: caseId === "case-001" ? "Load not showing correctly" : `Support Case #${caseId.split("-")[1]}`,
-        status: "open",
-        createdAt: new Date(Date.now() - 3600000),
-        updatedAt: new Date(Date.now() - 1800000),
+  const loadCase = async () => {
+    try {
+      const caseRef = doc(db, "cases", params.id as string)
+      const caseSnap = await getDoc(caseRef)
+      
+      if (caseSnap.exists()) {
+        const caseData = {
+          id: caseSnap.id,
+          ...caseSnap.data(),
+          createdAt: caseSnap.data().createdAt?.toDate() || new Date(),
+          updatedAt: caseSnap.data().updatedAt?.toDate() || new Date()
+        } as SupportCase
+        setSupportCase(caseData)
       }
-
-      setCaseDetails(mockCase)
-
-      // Initial system message
-      const initialMessages: Message[] = [
-        {
-          id: "1",
-          content: conversationFlow.start.message,
-          sender: "system",
-          timestamp: new Date(Date.now() - 3600000),
-        },
-      ]
-
-      setMessages(initialMessages)
+    } catch (error) {
+      console.error("Error loading case:", error)
+    } finally {
       setIsLoading(false)
-    }, 1000)
-  }, [caseId, router])
+    }
+  }
 
-  useEffect(() => {
-    // Scroll to bottom when messages change
+  const subscribeToMessages = () => {
+    const messagesRef = collection(db, "cases", params.id as string, "messages")
+    const q = query(messagesRef, orderBy("createdAt", "asc"))
+
+    return onSnapshot(q, (snapshot) => {
+      const newMessages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date()
+      })) as Message[]
+      setMessages(newMessages)
+      scrollToBottom()
+    })
+  }
+
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+  }
 
   // Handle option selection
   const handleOptionSelect = (option: string) => {
     // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
-      content: option,
-      sender: "user",
-      timestamp: new Date(),
+      text: option,
+      sender: "driver",
+      createdAt: new Date(),
     }
 
     setMessages((prev) => [...prev, userMessage])
@@ -162,9 +172,9 @@ export default function CaseDetail() {
     setTimeout(() => {
       const systemMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: conversationFlow[nextStepId].message,
+        text: conversationFlow[nextStepId].message,
         sender: "system",
-        timestamp: new Date(),
+        createdAt: new Date(),
       }
 
       setMessages((prev) => [...prev, systemMessage])
@@ -182,9 +192,9 @@ export default function CaseDetail() {
     // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
-      content: inputValue,
-      sender: "user",
-      timestamp: new Date(),
+      text: inputValue,
+      sender: "driver",
+      createdAt: new Date(),
     }
 
     setMessages((prev) => [...prev, userMessage])
@@ -198,9 +208,9 @@ export default function CaseDetail() {
     setTimeout(() => {
       const systemMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: conversationFlow[nextStepId].message,
+        text: conversationFlow[nextStepId].message,
         sender: "system",
-        timestamp: new Date(),
+        createdAt: new Date(),
       }
 
       setMessages((prev) => [...prev, systemMessage])
@@ -208,120 +218,115 @@ export default function CaseDetail() {
     }, 500)
   }
 
-  const formatTime = (date: Date) => {
-    return new Intl.DateTimeFormat("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date)
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newMessage.trim() || !supportCase) return
+
+    try {
+      await addCaseMessage(supportCase.id, {
+        text: newMessage,
+        sender: "driver"
+      })
+
+      // Update case timestamp
+      const caseRef = doc(db, "cases", supportCase.id)
+      await updateDoc(caseRef, {
+        updatedAt: serverTimestamp()
+      })
+
+      setNewMessage("")
+    } catch (error) {
+      console.error("Error sending message:", error)
+    }
   }
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-gray-950 text-white">
         <p>Loading...</p>
       </div>
     )
   }
 
+  if (!supportCase) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-950 text-white">
+        <p>Case not found</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-white border-b p-4 shadow-sm">
-        <div className="container mx-auto max-w-4xl">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Link href="/driver/dashboard">
-                <Button variant="ghost" size="icon">
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              </Link>
-              <div className="ml-2">
-                <h1 className="text-lg font-bold">{caseDetails?.title}</h1>
-                <div className="flex items-center space-x-2">
-                  <Badge variant="outline">{caseId}</Badge>
-                  <Badge variant={caseDetails?.status === "open" ? "default" : "secondary"}>
-                    {caseDetails?.status}
-                  </Badge>
-                </div>
-              </div>
+    <div className="min-h-screen bg-gray-950 text-white">
+      <div className="container mx-auto p-4">
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Button
+              variant="ghost"
+              className="text-white hover:bg-gray-800"
+              onClick={() => router.back()}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <div>
+              <h1 className="text-xl font-bold">{supportCase.title}</h1>
+              <p className="text-sm text-gray-400">
+                Case #{supportCase.id}
+              </p>
             </div>
           </div>
+          <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
+            {supportCase.status}
+          </Badge>
         </div>
-      </header>
 
-      <main className="flex-grow container mx-auto max-w-4xl p-4 flex flex-col">
-        <Card className="flex-grow flex flex-col">
-          <CardHeader className="border-b">
-            <CardTitle className="text-center text-sm">Support Chat</CardTitle>
-          </CardHeader>
-          <CardContent className="flex-grow overflow-y-auto p-4 space-y-4">
-            {messages.map((message) => (
-              <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`flex items-start max-w-[80%] ${message.sender === "user" ? "flex-row-reverse" : ""}`}>
+        <Card className="bg-gray-900 border-gray-800">
+          <CardContent className="p-4">
+            <div className="space-y-4 h-[600px] overflow-y-auto mb-4">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`flex ${
+                    message.sender === "driver" ? "justify-end" : "justify-start"
+                  }`}
+                >
                   <div
-                    className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center mr-2 ${
-                      message.sender === "user" ? "bg-primary text-primary-foreground ml-2" : "bg-gray-200"
+                    className={`rounded-lg px-4 py-2 max-w-[80%] ${
+                      message.sender === "driver"
+                        ? "bg-primary text-primary-foreground"
+                        : message.sender === "system"
+                        ? "bg-gray-800 text-gray-300"
+                        : "bg-gray-700 text-white"
                     }`}
                   >
-                    {message.sender === "user" ? <User size={16} /> : <Bot size={16} />}
-                  </div>
-                  <div>
-                    <div
-                      className={`p-3 rounded-lg ${
-                        message.sender === "user"
-                          ? "bg-primary text-primary-foreground rounded-tr-none"
-                          : "bg-gray-200 rounded-tl-none"
-                      }`}
-                    >
-                      {message.content}
-                    </div>
-                    <div
-                      className={`text-xs text-muted-foreground mt-1 ${
-                        message.sender === "user" ? "text-right" : "text-left"
-                      }`}
-                    >
-                      {formatTime(message.timestamp)}
-                    </div>
+                    <p className="text-sm">{message.text}</p>
+                    <p className="text-xs opacity-70 mt-1">
+                      {message.createdAt.toLocaleTimeString()}
+                    </p>
                   </div>
                 </div>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </CardContent>
-          <div className="border-t p-4">
-            {!isWaitingForInput && conversationFlow[currentStep].options ? (
-              <div className="w-full space-y-2">
-                {conversationFlow[currentStep].options?.map((option) => (
-                  <Button
-                    key={option}
-                    variant="outline"
-                    className="w-full justify-start text-left"
-                    onClick={() => handleOptionSelect(option)}
-                  >
-                    {option}
-                  </Button>
-                ))}
-              </div>
-            ) : (
-              <div className="flex w-full space-x-2">
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {supportCase.status === "open" && (
+              <form onSubmit={handleSendMessage} className="flex space-x-2">
                 <Input
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder={conversationFlow[currentStep].inputPlaceholder || "Type your message..."}
-                  className="flex-grow"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleInputSubmit()
-                    }
-                  }}
+                  type="text"
+                  placeholder="Type your message..."
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  className="flex-1 bg-gray-800 border-gray-700 text-white"
                 />
-                <Button type="button" size="icon" onClick={handleInputSubmit} disabled={!inputValue.trim()}>
-                  <Send size={18} />
+                <Button type="submit" className="bg-primary text-white">
+                  <Send className="h-4 w-4" />
                 </Button>
-              </div>
+              </form>
             )}
-          </div>
+          </CardContent>
         </Card>
-      </main>
+      </div>
     </div>
   )
 }
