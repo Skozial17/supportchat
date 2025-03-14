@@ -253,11 +253,64 @@ export type SupportCase = {
   driverName: string
   driverEmail: string
   company: string
-  issueType: LoadIssueType
+  title: string
   description: string
   status: "open" | "closed"
   createdAt: Date
   updatedAt: Date
+}
+
+export type CaseMessage = {
+  id: string
+  text: string
+  sender: "system" | "driver" | "admin"
+  createdAt: Date
+}
+
+export async function addCaseMessage(caseId: string, data: {
+  text: string
+  sender: "system" | "driver" | "admin"
+}) {
+  try {
+    const messageId = `msg-${Date.now()}`
+    const messageData = {
+      id: messageId,
+      text: data.text,
+      sender: data.sender,
+      createdAt: serverTimestamp()
+    }
+
+    await setDoc(
+      doc(db, 'cases', caseId, 'messages', messageId), 
+      messageData
+    )
+
+    return {
+      success: true,
+      messageId
+    }
+  } catch (error) {
+    console.error('Error adding case message:', error)
+    throw error
+  }
+}
+
+export async function getCaseMessages(caseId: string) {
+  try {
+    const q = query(
+      collection(db, 'cases', caseId, 'messages'),
+      orderBy('createdAt', 'asc')
+    )
+    
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => ({
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate() || new Date()
+    })) as CaseMessage[]
+  } catch (error) {
+    console.error('Error getting case messages:', error)
+    return []
+  }
 }
 
 export async function createSupportCase(data: {
@@ -265,20 +318,28 @@ export async function createSupportCase(data: {
   driverName: string
   driverEmail: string
   company: string
-  issueType: LoadIssueType
+  title: string
   description: string
+  status: "open" | "closed"
 }) {
   try {
     const caseId = `case-${Date.now()}`
+    const timestamp = serverTimestamp()
     const caseData = {
       ...data,
       id: caseId,
-      status: "open",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      createdAt: timestamp,
+      updatedAt: timestamp
     }
 
+    // Create the case document
     await setDoc(doc(db, 'cases', caseId), caseData)
+
+    // Add initial system message
+    await addCaseMessage(caseId, {
+      text: `Case created: ${data.description}`,
+      sender: "system"
+    })
 
     return {
       success: true,

@@ -6,23 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { MessageSquarePlus, LineChart, User } from "lucide-react"
+import { Plus, LogOut } from "lucide-react"
 import Link from "next/link"
-
-// Define the case structure
-type Case = {
-  id: string
-  title: string
-  lastMessage: string
-  status: "open" | "closed"
-  createdAt: Date
-  updatedAt: Date
-}
+import { collection, query, where, getDocs } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import type { SupportCase } from "@/lib/auth"
 
 export default function DriverDashboard() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
-  const [cases, setCases] = useState<Case[]>([])
+  const [cases, setCases] = useState<SupportCase[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -40,40 +33,44 @@ export default function DriverDashboard() {
     }
 
     setUser(parsedUser)
-
-    // Mock API call to get cases
-    setTimeout(() => {
-      const mockCases: Case[] = [
-        {
-          id: "case-001",
-          title: "Load Issue",
-          lastMessage: "Please type VRID affected",
-          status: "open",
-          createdAt: new Date(Date.now() - 3600000),
-          updatedAt: new Date(Date.now() - 1800000),
-        },
-        {
-          id: "case-002",
-          title: "App Navigation",
-          lastMessage: "Thank you for your report. Our team is investigating.",
-          status: "open",
-          createdAt: new Date(Date.now() - 86400000),
-          updatedAt: new Date(Date.now() - 43200000),
-        },
-        {
-          id: "case-003",
-          title: "Delivery Confirmation",
-          lastMessage: "Your delivery has been confirmed. Thank you!",
-          status: "closed",
-          createdAt: new Date(Date.now() - 172800000),
-          updatedAt: new Date(Date.now() - 86400000),
-        },
-      ]
-
-      setCases(mockCases)
-      setIsLoading(false)
-    }, 1000)
+    loadCases(parsedUser.uid)
   }, [router])
+
+  const loadCases = async (driverId: string) => {
+    try {
+      const casesRef = collection(db, 'cases')
+      const q = query(
+        casesRef,
+        where('driverId', '==', driverId)
+        // Temporarily removed orderBy until index is created
+      )
+      
+      const snapshot = await getDocs(q)
+      const casesData = snapshot.docs.map(doc => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date()
+        }
+      }) as SupportCase[]
+      
+      // Sort cases in memory instead
+      casesData.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      
+      setCases(casesData)
+    } catch (error) {
+      console.error('Error loading cases:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem("user")
+    router.push("/login?role=driver")
+  }
 
   const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat("en-US", {
@@ -82,14 +79,6 @@ export default function DriverDashboard() {
       hour: "2-digit",
       minute: "2-digit",
     }).format(date)
-  }
-
-  // Generate a new case ID and navigate directly to chat
-  const handleNewCase = () => {
-    const caseId = `case-${Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, "0")}`
-    router.push(`/driver/chat/${caseId}`)
   }
 
   if (isLoading) {
@@ -103,9 +92,19 @@ export default function DriverDashboard() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <div className="container mx-auto p-4 pb-20">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold">Support Cases</h2>
-          <p className="text-gray-400">View and manage your support requests</p>
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-2xl font-bold">Support Cases</h2>
+            <p className="text-gray-400">View and manage your support requests</p>
+          </div>
+          <Button 
+            variant="outline" 
+            className="bg-gray-800 hover:bg-gray-700 text-white"
+            onClick={handleLogout}
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Logout
+          </Button>
         </div>
 
         <Tabs defaultValue="open" className="w-full">
@@ -126,14 +125,14 @@ export default function DriverDashboard() {
               {cases
                 .filter((c) => tabValue === "all" || c.status === tabValue)
                 .map((supportCase) => (
-                  <Link key={supportCase.id} href={`/driver/chat/${supportCase.id}`}>
+                  <Link key={supportCase.id} href={`/driver/case/${supportCase.id}`}>
                     <Card className="bg-gray-900 border-gray-800 hover:bg-gray-800 transition-colors cursor-pointer p-4">
                       <div className="flex justify-between items-start mb-2">
                         <div>
                           <h3 className="font-medium text-white">{supportCase.title}</h3>
-                          <p className="text-sm text-gray-400">{supportCase.lastMessage}</p>
+                          <p className="text-sm text-gray-400">{supportCase.description}</p>
                         </div>
-                        <Badge variant={supportCase.status === "open" ? "default" : "secondary"}>
+                        <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
                           {supportCase.status}
                         </Badge>
                       </div>
@@ -153,32 +152,14 @@ export default function DriverDashboard() {
       </div>
 
       {/* Bottom Navigation Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 p-2">
-        <div className="flex justify-around items-center">
-          <Button
-            variant="ghost"
-            className="flex-1 flex flex-col items-center text-gray-400 hover:text-white"
-            onClick={() => router.push("/driver/dashboard")}
-          >
-            <LineChart className="h-5 w-5" />
-            <span className="text-xs mt-1">Cases</span>
-          </Button>
-          <Button
-            variant="ghost"
-            className="flex-1 flex flex-col items-center text-gray-400 hover:text-white"
-            onClick={handleNewCase}
-          >
-            <MessageSquarePlus className="h-5 w-5" />
-            <span className="text-xs mt-1">New Case</span>
-          </Button>
-          <Button
-            variant="ghost"
-            className="flex-1 flex flex-col items-center text-gray-400 hover:text-white"
-            onClick={() => router.push("/driver/profile")}
-          >
-            <User className="h-5 w-5" />
-            <span className="text-xs mt-1">Profile</span>
-          </Button>
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 p-4">
+        <div className="container mx-auto">
+          <Link href="/driver/case/new">
+            <Button className="w-full bg-primary hover:bg-primary/90">
+              <Plus className="w-4 h-4 mr-2" />
+              New Support Case
+            </Button>
+          </Link>
         </div>
       </div>
     </div>
