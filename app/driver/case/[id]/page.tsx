@@ -11,6 +11,7 @@ import Link from "next/link"
 import { db } from "@/lib/firebase"
 import { doc, getDoc, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc } from "firebase/firestore"
 import type { SupportCase } from "@/lib/auth"
+import { updateCaseStatus, addCaseMessage } from "@/lib/auth"
 
 // Define the message structure
 type Message = {
@@ -227,16 +228,21 @@ export default function CaseDetail() {
         text: newMessage,
         sender: "driver"
       })
-
-      // Update case timestamp
-      const caseRef = doc(db, "cases", supportCase.id)
-      await updateDoc(caseRef, {
-        updatedAt: serverTimestamp()
-      })
-
       setNewMessage("")
     } catch (error) {
       console.error("Error sending message:", error)
+    }
+  }
+
+  const handleStatusChange = async (newStatus: "open" | "closed") => {
+    if (!supportCase) return
+    try {
+      const result = await updateCaseStatus(supportCase.id, newStatus)
+      if (result.success) {
+        setSupportCase(prev => prev ? { ...prev, status: newStatus } : null)
+      }
+    } catch (error) {
+      console.error("Error updating case status:", error)
     }
   }
 
@@ -258,28 +264,36 @@ export default function CaseDetail() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="container mx-auto p-4">
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              className="text-white hover:bg-gray-800"
-              onClick={() => router.back()}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <div>
-              <h1 className="text-xl font-bold">{supportCase.title}</h1>
-              <p className="text-sm text-gray-400">
-                Case #{supportCase.id}
-              </p>
+      <div className="container mx-auto max-w-4xl p-4">
+        <header className="bg-gray-900 border-b border-gray-800 p-4">
+          <div className="container mx-auto">
+            <div className="flex items-center justify-between">
+              <Link href="/driver/dashboard" className="inline-flex items-center text-gray-400 hover:text-white">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Link>
+              <div className="text-center flex-1">
+                <h1 className="text-white text-lg font-semibold">{supportCase.title}</h1>
+                <div className="flex items-center justify-center gap-2 mt-1">
+                  <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
+                    {supportCase.status}
+                  </Badge>
+                  {supportCase.status === "closed" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleStatusChange("open")}
+                      className="text-green-500 border-green-500 hover:bg-green-500/10"
+                    >
+                      Reopen
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="w-16"></div>
             </div>
           </div>
-          <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
-            {supportCase.status}
-          </Badge>
-        </div>
+        </header>
 
         <Card className="bg-gray-900 border-gray-800">
           <CardContent className="p-4">
