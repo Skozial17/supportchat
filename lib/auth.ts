@@ -24,13 +24,22 @@ export type DriverSignupData = {
   password: string
   name: string
   phone?: string
-  company: string
+  companyCode: string
 }
 
 export async function signupDriver(data: DriverSignupData) {
   try {
     console.log('Starting driver signup process...')
     
+    // First verify the company code exists
+    const companyResult = await getCompanyByCode(data.companyCode)
+    if (!companyResult.success) {
+      return {
+        success: false,
+        message: 'Invalid company code. Please check and try again.'
+      }
+    }
+
     // Create auth account
     const userCredential = await createUserWithEmailAndPassword(
       auth,
@@ -45,7 +54,8 @@ export async function signupDriver(data: DriverSignupData) {
       name: data.name,
       email: data.email,
       phone: data.phone || null,
-      company: data.company,
+      company: companyResult.company.name,
+      companyCode: data.companyCode.toUpperCase(),
       status: 'pending',
       appliedAt: serverTimestamp(),
       uid: userCredential.user.uid
@@ -269,31 +279,24 @@ export type CaseMessage = {
   createdAt: Date
 }
 
-export async function addCaseMessage(caseId: string, data: {
-  text: string
-  sender: "system" | "driver" | "admin"
-}) {
+export async function addCaseMessage(caseId: string, message: { text: string; sender: "admin" | "driver" | "system" }) {
   try {
-    const messageId = `msg-${Date.now()}`
-    const messageData = {
-      id: messageId,
-      text: data.text,
-      sender: data.sender,
+    const messagesRef = collection(db, "cases", caseId, "messages");
+    await addDoc(messagesRef, {
+      ...message,
       createdAt: serverTimestamp()
-    }
+    });
 
-    await setDoc(
-      doc(db, 'cases', caseId, 'messages', messageId), 
-      messageData
-    )
+    // Update the case's updatedAt timestamp
+    const caseRef = doc(db, "cases", caseId);
+    await updateDoc(caseRef, {
+      updatedAt: serverTimestamp()
+    });
 
-    return {
-      success: true,
-      messageId
-    }
+    return { success: true };
   } catch (error) {
-    console.error('Error adding case message:', error)
-    throw error
+    console.error("Error adding message:", error);
+    return { success: false, error };
   }
 }
 
@@ -436,8 +439,12 @@ export async function createCompany(data: {
 }
 
 // Function to get company by code
-export async function getCompanyByCode(code: string) {
+export async function getCompanyByCode(code: string | undefined) {
   try {
+    if (!code) {
+      return { success: false, message: 'Company code is required' }
+    }
+
     const companyRef = collection(db, 'companies')
     const q = query(companyRef, where('code', '==', code.toUpperCase()))
     const snapshot = await getDocs(q)
@@ -523,5 +530,26 @@ export async function updateDriverCompany(driverId: string, companyName: string)
   } catch (error) {
     console.error('Error updating driver company:', error)
     return { success: false, message: 'Failed to update driver company' }
+  }
+}
+
+export async function updateCaseStatus(caseId: string, status: "open" | "closed") {
+  try {
+    const caseRef = doc(db, "cases", caseId)
+    await updateDoc(caseRef, {
+      status,
+      updatedAt: serverTimestamp()
+    })
+
+    // Add a system message about the status change
+    await addCaseMessage(caseId, {
+      text: `Case ${status === "open" ? "reopened" : "closed"}`,
+      sender: "system"
+    })
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating case status:", error)
+    return { success: false, error }
   }
 } 
