@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Send } from "lucide-react"
 import { db } from "@/lib/firebase"
-import { doc, getDoc, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc } from "firebase/firestore"
+import { doc, getDoc, collection, query, orderBy, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore"
 import type { SupportCase } from "@/lib/auth"
+import { updateCaseStatus, addCaseMessage } from "@/lib/auth"
 
 type Message = {
   id: string
@@ -93,16 +94,21 @@ export default function CaseView() {
         text: newMessage,
         sender: "admin"
       })
-
-      // Update case timestamp
-      const caseRef = doc(db, "cases", supportCase.id)
-      await updateDoc(caseRef, {
-        updatedAt: serverTimestamp()
-      })
-
       setNewMessage("")
     } catch (error) {
       console.error("Error sending message:", error)
+    }
+  }
+
+  const handleStatusChange = async (newStatus: "open" | "closed") => {
+    if (!supportCase) return
+    try {
+      const result = await updateCaseStatus(supportCase.id, newStatus)
+      if (result.success) {
+        setSupportCase(prev => prev ? { ...prev, status: newStatus } : null)
+      }
+    } catch (error) {
+      console.error("Error updating case status:", error)
     }
   }
 
@@ -142,9 +148,31 @@ export default function CaseView() {
               </p>
             </div>
           </div>
-          <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
-            {supportCase.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
+              {supportCase.status}
+            </Badge>
+            {supportCase.status === "closed" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleStatusChange("open")}
+                className="text-green-500 border-green-500 hover:bg-green-500/10"
+              >
+                Reopen
+              </Button>
+            )}
+            {supportCase.status === "open" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleStatusChange("closed")}
+                className="text-red-500 border-red-500 hover:bg-red-500/10"
+              >
+                Close
+              </Button>
+            )}
+          </div>
         </div>
 
         <Card className="bg-gray-900 border-gray-800">

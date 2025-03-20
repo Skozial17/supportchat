@@ -3,61 +3,82 @@
 import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { createSupportCase, addCaseMessage } from "@/lib/auth"
+import { Send } from "lucide-react"
 
 type Message = {
   id: string
   content: string
-  sender: "system" | "user"
+  sender: "system" | "user" | "admin"
+  timestamp: string
   options?: string[]
-  requireInput?: boolean
 }
 
 type ConversationStep = {
   message: string
   options?: string[]
   nextStep?: Record<string, string>
-  requireInput?: boolean
 }
 
 const conversationFlow: Record<string, ConversationStep> = {
   start: {
-    message: "Has the tour started?",
+    message: "Has your job started?",
     options: ["Yes", "No"],
     nextStep: {
-      Yes: "issue_type",
-      No: "tour_not_started"
+      Yes: "vrid_showing",
+      No: "job_not_started"
     }
   },
-  tour_not_started: {
-    message: "Please start your tour and check back when ready."
+  job_not_started: {
+    message: "Please provide your VRID which is canceled."
   },
-  issue_type: {
-    message: "What type of issue are you experiencing?",
-    options: ["Load Issue"],
+  vrid_showing: {
+    message: "Is the VRID still showing on your Amazon Relay app?",
+    options: ["Yes", "No"],
     nextStep: {
-      "Load Issue": "load_issue_type"
+      Yes: "case_cmr_check",
+      No: "vrid_request"
     }
   },
-  load_issue_type: {
-    message: "What load issue are you experiencing?",
+  case_cmr_check: {
+    message: "Has the Amazon site provided you with a zero goods CMR or a case number?",
     options: [
-      "Load has disappeared from Amazon Relay",
-      "I was told load is cancelled but it still showing on my app"
+      "Yes, I have a case number",
+      "Yes, I have zero goods CMR",
+      "No"
     ],
     nextStep: {
-      "Load has disappeared from Amazon Relay": "vrid_input",
-      "I was told load is cancelled but it still showing on my app": "vrid_input"
+      "Yes, I have a case number": "case_number_request",
+      "Yes, I have zero goods CMR": "cmr_request",
+      "No": "no_case_cmr"
     }
   },
-  vrid_input: {
-    message: "Please type VRID affected:",
-    requireInput: true
+  case_number_request: {
+    message: "Please type the VRID which was canceled and the case number."
+  },
+  cmr_request: {
+    message: "Please send a picture of the zero goods CMR. Also, please provide the VRID which was canceled."
+  },
+  no_case_cmr: {
+    message: "You have not received a case number and you have not received zero goods CMR. Please provide the VRID which was canceled."
+  },
+  vrid_request: {
+    message: "Please provide the VRID which was canceled."
   }
+}
+
+// Add this helper function before the NewCase component
+const isInputStep = (step: string) => {
+  return [
+    "job_not_started",
+    "vrid_request",
+    "case_number_request",
+    "cmr_request",
+    "no_case_cmr"
+  ].includes(step)
 }
 
 export default function NewCase() {
@@ -65,10 +86,12 @@ export default function NewCase() {
   const [user, setUser] = useState<any>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [currentStep, setCurrentStep] = useState("start")
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [inputValue, setInputValue] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedIssue, setSelectedIssue] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [caseTitle, setCaseTitle] = useState("New Support Case")
+  const [caseId, setCaseId] = useState("")
 
   useEffect(() => {
     // Check if user is logged in
@@ -86,10 +109,17 @@ export default function NewCase() {
 
     setUser(parsedUser)
     // Add initial system message
+    const timestamp = new Date().toLocaleTimeString('en-US', { 
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
     setMessages([{
       id: "1",
       content: conversationFlow.start.message,
       sender: "system",
+      timestamp,
       options: conversationFlow.start.options
     }])
   }, [router])
@@ -102,16 +132,25 @@ export default function NewCase() {
   const handleOptionSelect = async (option: string) => {
     if (isSubmitting) return
 
+    const timestamp = new Date().toLocaleTimeString('en-US', { 
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+
     // Add user's response to messages
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
       content: option,
-      sender: "user"
+      sender: "user",
+      timestamp
     }])
 
     if (option === "Load has disappeared from Amazon Relay" || 
         option === "I was told load is cancelled but it still showing on my app") {
       setSelectedIssue(option)
+      setCaseTitle(`Load Issue - ${option}`)
     }
 
     const currentFlow = conversationFlow[currentStep]
@@ -122,35 +161,47 @@ export default function NewCase() {
       const nextFlow = conversationFlow[nextStep]
       
       setCurrentStep(nextStep)
-      setMessages(prev => [...prev, {
-        id: Date.now().toString() + "1",
-        content: nextFlow.message,
-        sender: "system",
-        options: nextFlow.options,
-        requireInput: nextFlow.requireInput
-      }])
+
+      // Add system's next message after a short delay
+      setTimeout(() => {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          content: nextFlow.message,
+          sender: "system",
+          timestamp: new Date().toLocaleTimeString('en-US', { 
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          }),
+          options: nextFlow.options
+        }])
+      }, 500)
     }
   }
 
-  const handleInputSubmit = async (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!inputValue.trim() || isSubmitting) return
 
-    // Add user's VRID input to messages
-    setMessages(prev => [...prev, {
+    const timestamp = new Date().toLocaleTimeString('en-US', { 
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+
+    // Add user's message
+    const userMessage = {
       id: Date.now().toString(),
       content: inputValue,
-      sender: "user"
-    }])
+      sender: "user",
+      timestamp
+    }
+    setMessages(prev => [...prev, userMessage])
+    setInputValue("")
 
-    // Add the "please wait" message
-    setMessages(prev => [...prev, {
-      id: Date.now().toString() + "1",
-      content: "Please wait whilst we raise case to ROC",
-      sender: "system"
-    }])
-
-    // Create the support case
+    // Create case after VRID is provided
     setIsSubmitting(true)
     try {
       const result = await createSupportCase({
@@ -158,53 +209,26 @@ export default function NewCase() {
         driverName: user.name || user.email.split('@')[0],
         driverEmail: user.email,
         company: "KozialTrans",
-        title: `Load Issue - ${selectedIssue}`,
-        description: `Tour started: Yes\nIssue type: Load Issue\nSpecific issue: ${selectedIssue}\nVRID: ${inputValue}`,
+        title: caseTitle,
+        description: `VRID: ${inputValue}`,
         status: "open"
       })
 
       if (result.success) {
-        // Store all conversation messages
-        const conversationMessages = [
-          {
-            text: "Has the tour started?",
-            sender: "system"
-          },
-          {
-            text: "Yes",
-            sender: "driver"
-          },
-          {
-            text: "What type of issue are you experiencing?",
-            sender: "system"
-          },
-          {
-            text: "Load Issue",
-            sender: "driver"
-          },
-          {
-            text: "What load issue are you experiencing?",
-            sender: "system"
-          },
-          {
-            text: selectedIssue,
-            sender: "driver"
-          },
-          {
-            text: "Please type VRID affected:",
-            sender: "system"
-          },
-          {
-            text: inputValue,
-            sender: "driver"
-          }
-        ]
-
-        // Add each message to the case
-        for (const msg of conversationMessages) {
-          await addCaseMessage(result.caseId, msg)
+        setCaseId(result.caseId)
+        // Add all messages to the case
+        for (const msg of messages) {
+          await addCaseMessage(result.caseId, {
+            text: msg.content,
+            sender: msg.sender === "system" ? "admin" : "driver"
+          })
         }
-
+        // Add the final VRID message
+        await addCaseMessage(result.caseId, {
+          text: inputValue,
+          sender: "driver"
+        })
+        
         router.push(`/driver/dashboard`)
       }
     } catch (error) {
@@ -212,7 +236,13 @@ export default function NewCase() {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         content: "Failed to create support case. Please try again.",
-        sender: "system"
+        sender: "system",
+        timestamp: new Date().toLocaleTimeString('en-US', { 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        })
       }])
     } finally {
       setIsSubmitting(false)
@@ -223,37 +253,45 @@ export default function NewCase() {
     <div className="min-h-screen bg-gray-950 flex flex-col">
       <header className="bg-gray-900 border-b border-gray-800 p-4">
         <div className="container mx-auto">
-          <Link href="/driver/dashboard" className="inline-flex items-center text-gray-400 hover:text-white">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
-          </Link>
+          <div className="flex items-center justify-between">
+            <Link href="/driver/dashboard" className="inline-flex items-center text-gray-400 hover:text-white">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Link>
+            <div className="text-center flex-1">
+              <h1 className="text-white text-lg font-semibold">{caseTitle}</h1>
+              {caseId && (
+                <p className="text-sm text-gray-400">Case #{caseId}</p>
+              )}
+            </div>
+            <div className="w-16"></div>
+          </div>
         </div>
       </header>
 
       <main className="flex-1 container mx-auto p-4 overflow-y-auto">
         <div className="max-w-2xl mx-auto space-y-4">
           {messages.map((message) => (
-            <Card 
-              key={message.id} 
-              className={`${
-                message.sender === "system" 
-                  ? "bg-gray-900 border-gray-800" 
-                  : "bg-primary border-primary/50 ml-8"
-              }`}
+            <div
+              key={message.id}
+              className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
             >
-              <CardContent className="p-4">
-                <p className={`${
-                  message.sender === "system" ? "text-white" : "text-primary-foreground"
-                }`}>
-                  {message.content}
-                </p>
-                {message.options && (
+              <div
+                className={`rounded-lg px-4 py-2 max-w-[80%] ${
+                  message.sender === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-gray-900 text-white"
+                }`}
+              >
+                <p>{message.content}</p>
+                <p className="text-xs mt-1 opacity-70">{message.timestamp}</p>
+                {message.options && message.sender === "system" && (
                   <div className="mt-4 space-y-2">
                     {message.options.map((option) => (
                       <Button
                         key={option}
                         variant="outline"
-                        className="w-full justify-start text-left"
+                        className="w-full justify-start text-left bg-gray-800 border-gray-700 hover:bg-gray-700"
                         onClick={() => handleOptionSelect(option)}
                         disabled={isSubmitting}
                       >
@@ -262,31 +300,34 @@ export default function NewCase() {
                     ))}
                   </div>
                 )}
-                {message.requireInput && message.sender === "system" && (
-                  <form onSubmit={handleInputSubmit} className="mt-4">
-                    <div className="flex gap-2">
-                      <Input
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        placeholder="Enter VRID"
-                        className="bg-gray-800 border-gray-700 text-white"
-                        disabled={isSubmitting}
-                      />
-                      <Button 
-                        type="submit"
-                        disabled={isSubmitting || !inputValue.trim()}
-                      >
-                        Submit
-                      </Button>
-                    </div>
-                  </form>
-                )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ))}
           <div ref={messagesEndRef} />
         </div>
       </main>
+
+      <footer className="bg-gray-900 border-t border-gray-800 p-4">
+        <div className="container mx-auto max-w-2xl">
+          <form onSubmit={handleSendMessage} className="flex gap-2">
+            <Input
+              type="text"
+              placeholder="Type your message..."
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              className="flex-1 bg-gray-800 border-gray-700 text-white"
+              disabled={isSubmitting || !isInputStep(currentStep)}
+            />
+            <Button 
+              type="submit" 
+              disabled={isSubmitting || !inputValue.trim() || !isInputStep(currentStep)}
+              className="bg-primary hover:bg-primary/90"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </form>
+        </div>
+      </footer>
     </div>
   )
 } 
