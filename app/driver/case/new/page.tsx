@@ -25,37 +25,60 @@ type ConversationStep = {
 
 const conversationFlow: Record<string, ConversationStep> = {
   start: {
-    message: "Has the tour started?",
+    message: "Has your job started?",
     options: ["Yes", "No"],
     nextStep: {
-      Yes: "issue_type",
-      No: "tour_not_started"
+      Yes: "vrid_showing",
+      No: "job_not_started"
     }
   },
-  tour_not_started: {
-    message: "Please start your tour and check back when ready."
+  job_not_started: {
+    message: "Please provide your VRID which is canceled."
   },
-  issue_type: {
-    message: "What type of issue are you experiencing?",
-    options: ["Load Issue"],
+  vrid_showing: {
+    message: "Is the VRID still showing on your Amazon Relay app?",
+    options: ["Yes", "No"],
     nextStep: {
-      "Load Issue": "load_issue_type"
+      Yes: "case_cmr_check",
+      No: "vrid_request"
     }
   },
-  load_issue_type: {
-    message: "What load issue are you experiencing?",
+  case_cmr_check: {
+    message: "Has the Amazon site provided you with a zero goods CMR or a case number?",
     options: [
-      "Load has disappeared from Amazon Relay",
-      "I was told load is cancelled but it still showing on my app"
+      "Yes, I have a case number",
+      "Yes, I have zero goods CMR",
+      "No"
     ],
     nextStep: {
-      "Load has disappeared from Amazon Relay": "vrid_input",
-      "I was told load is cancelled but it still showing on my app": "vrid_input"
+      "Yes, I have a case number": "case_number_request",
+      "Yes, I have zero goods CMR": "cmr_request",
+      "No": "no_case_cmr"
     }
   },
-  vrid_input: {
-    message: "Please type VRID affected:"
+  case_number_request: {
+    message: "Please type the VRID which was canceled and the case number."
+  },
+  cmr_request: {
+    message: "Please send a picture of the zero goods CMR. Also, please provide the VRID which was canceled."
+  },
+  no_case_cmr: {
+    message: "You have not received a case number and you have not received zero goods CMR. Please provide the VRID which was canceled."
+  },
+  vrid_request: {
+    message: "Please provide the VRID which was canceled."
   }
+}
+
+// Add this helper function before the NewCase component
+const isInputStep = (step: string) => {
+  return [
+    "job_not_started",
+    "vrid_request",
+    "case_number_request",
+    "cmr_request",
+    "no_case_cmr"
+  ].includes(step)
 }
 
 export default function NewCase() {
@@ -178,53 +201,51 @@ export default function NewCase() {
     setMessages(prev => [...prev, userMessage])
     setInputValue("")
 
-    // If we're at the VRID input step
-    if (currentStep === "vrid_input") {
-      setIsSubmitting(true)
-      try {
-        const result = await createSupportCase({
-          driverId: user.uid,
-          driverName: user.name || user.email.split('@')[0],
-          driverEmail: user.email,
-          company: "KozialTrans",
-          title: caseTitle,
-          description: `Tour started: Yes\nIssue type: Load Issue\nSpecific issue: ${selectedIssue}\nVRID: ${inputValue}`,
-          status: "open"
-        })
+    // Create case after VRID is provided
+    setIsSubmitting(true)
+    try {
+      const result = await createSupportCase({
+        driverId: user.uid,
+        driverName: user.name || user.email.split('@')[0],
+        driverEmail: user.email,
+        company: "KozialTrans",
+        title: caseTitle,
+        description: `VRID: ${inputValue}`,
+        status: "open"
+      })
 
-        if (result.success) {
-          setCaseId(result.caseId)
-          // Add all messages to the case
-          for (const msg of messages) {
-            await addCaseMessage(result.caseId, {
-              text: msg.content,
-              sender: msg.sender === "system" ? "admin" : "driver"
-            })
-          }
-          // Add the final VRID message
+      if (result.success) {
+        setCaseId(result.caseId)
+        // Add all messages to the case
+        for (const msg of messages) {
           await addCaseMessage(result.caseId, {
-            text: inputValue,
-            sender: "driver"
+            text: msg.content,
+            sender: msg.sender === "system" ? "admin" : "driver"
           })
-          
-          router.push(`/driver/dashboard`)
         }
-      } catch (error) {
-        console.error("Error creating case:", error)
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          content: "Failed to create support case. Please try again.",
-          sender: "system",
-          timestamp: new Date().toLocaleTimeString('en-US', { 
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          })
-        }])
-      } finally {
-        setIsSubmitting(false)
+        // Add the final VRID message
+        await addCaseMessage(result.caseId, {
+          text: inputValue,
+          sender: "driver"
+        })
+        
+        router.push(`/driver/dashboard`)
       }
+    } catch (error) {
+      console.error("Error creating case:", error)
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        content: "Failed to create support case. Please try again.",
+        sender: "system",
+        timestamp: new Date().toLocaleTimeString('en-US', { 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        })
+      }])
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -295,11 +316,11 @@ export default function NewCase() {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               className="flex-1 bg-gray-800 border-gray-700 text-white"
-              disabled={isSubmitting || currentStep !== "vrid_input"}
+              disabled={isSubmitting || !isInputStep(currentStep)}
             />
             <Button 
               type="submit" 
-              disabled={isSubmitting || !inputValue.trim() || currentStep !== "vrid_input"}
+              disabled={isSubmitting || !inputValue.trim() || !isInputStep(currentStep)}
               className="bg-primary hover:bg-primary/90"
             >
               <Send className="h-4 w-4" />
