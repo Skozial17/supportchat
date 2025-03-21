@@ -28,12 +28,30 @@ const conversationFlow: Record<string, ConversationStep> = {
     message: "Has your job started?",
     options: ["Yes", "No"],
     nextStep: {
-      Yes: "vrid_showing",
+      Yes: "issue_type_selection",
       No: "job_not_started"
     }
   },
   job_not_started: {
     message: "Please provide your VRID which is canceled."
+  },
+  issue_type_selection: {
+    message: "Is this a Load Issue or Empty Trailer Issue?",
+    options: ["Load Issue", "Empty Trailer Issue"],
+    nextStep: {
+      "Load Issue": "vrid_showing",
+      "Empty Trailer Issue": "empty_trailer_confirmation"
+    }
+  },
+  empty_trailer_confirmation: {
+    message: "Site told me there is no empty trailers and continue bobtail",
+    options: ["Yes"],
+    nextStep: {
+      "Yes": "empty_trailer_vrid"
+    }
+  },
+  empty_trailer_vrid: {
+    message: "Please type the VRID which is affected."
   },
   vrid_showing: {
     message: "Is the VRID still showing on your Amazon Relay app?",
@@ -70,14 +88,15 @@ const conversationFlow: Record<string, ConversationStep> = {
   }
 }
 
-// Add this helper function before the NewCase component
+// Update the isInputStep function to include the new empty trailer VRID step
 const isInputStep = (step: string) => {
   return [
     "job_not_started",
     "vrid_request",
     "case_number_request",
     "cmr_request",
-    "no_case_cmr"
+    "no_case_cmr",
+    "empty_trailer_vrid"  // Add the new step
   ].includes(step)
 }
 
