@@ -19,7 +19,7 @@ export default function DriverSignup() {
     password: "",
     confirmPassword: "",
     phone: "",
-    company: "KozialTrans" // Default to KozialTrans
+    company: "" // Remove default value
   })
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
@@ -39,7 +39,7 @@ export default function DriverSignup() {
     setSuccess("")
 
     // Validation
-    if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
+    if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword || !formData.company) {
       setError("Please fill in all required fields")
       setIsLoading(false)
       return
@@ -57,12 +57,19 @@ export default function DriverSignup() {
       return
     }
 
+    if (formData.company.length < 4) {
+      setError("Company code must be at least 4 characters")
+      setIsLoading(false)
+      return
+    }
+
     try {
       const result = await signupDriver({
         name: formData.name,
         email: formData.email,
         password: formData.password,
-        phone: formData.phone || undefined
+        phone: formData.phone || undefined,
+        companyCode: formData.company
       })
 
       if (result.success) {
@@ -138,15 +145,19 @@ export default function DriverSignup() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="company" className="text-gray-300">Company</Label>
+              <Label htmlFor="company" className="text-gray-300">Company Code</Label>
               <Input
                 id="company"
                 name="company"
                 type="text"
+                placeholder="Enter company code (e.g. AKOTL)"
                 value={formData.company}
-                onChange={handleChange}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  company: e.target.value.toUpperCase()
+                })}
                 required
-                disabled
+                maxLength={5}
                 className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
               />
             </div>

@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Send, User, Bot } from "lucide-react"
+import { ArrowLeft, Send, User, Bot, Upload } from "lucide-react"
 import Link from "next/link"
 import { db } from "@/lib/firebase"
 import { doc, getDoc, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc } from "firebase/firestore"
 import type { SupportCase } from "@/lib/auth"
+import { updateCaseStatus, addCaseMessage } from "@/lib/auth"
 
 // Define the message structure
 type Message = {
@@ -18,6 +19,10 @@ type Message = {
   text: string
   sender: "system" | "driver" | "admin"
   createdAt: Date
+  attachment?: {
+    type: "image"
+    url: string
+  }
 }
 
 // Define the conversation flow steps
@@ -35,48 +40,80 @@ type ConversationStep = {
 const conversationFlow: Record<string, ConversationStep> = {
   start: {
     id: "start",
-    message: "Has the tour started?",
+    message: "Has your job started?",
     options: ["Yes", "No"],
     nextStep: {
-      Yes: "load_showing",
-      No: "tour_not_started",
+      Yes: "vrid_showing",
+      No: "job_not_started",
     },
   },
-  tour_not_started: {
-    id: "tour_not_started",
-    message: "Please start your tour and check back when ready.",
-    defaultNextStep: "start",
+  job_not_started: {
+    id: "job_not_started",
+    message: "Please provide your VRID which is canceled.",
+    requiresInput: true,
+    inputPlaceholder: "Enter VRID number",
+    defaultNextStep: "vrid_confirmation",
   },
-  load_showing: {
-    id: "load_showing",
-    message: "Thank you. Is the load still showing on your app?",
-    options: ["Yes", "No", "Site told me load is cancelled but it is still on my Relay app"],
+  vrid_showing: {
+    id: "vrid_showing",
+    message: "Is the VRID still showing on your Amazon Relay app?",
+    options: ["Yes", "No"],
     nextStep: {
-      Yes: "load_showing_yes",
-      No: "load_showing_no",
-      "Site told me load is cancelled but it is still on my Relay app": "vrid_request",
+      Yes: "case_cmr_check",
+      No: "vrid_request",
     },
   },
-  load_showing_yes: {
-    id: "load_showing_yes",
-    message: "Please proceed with the delivery as shown in your app.",
-    defaultNextStep: "start",
+  case_cmr_check: {
+    id: "case_cmr_check",
+    message: "Has the Amazon site provided you with a zero goods CMR or a case number?",
+    options: ["Yes, I have a case number", "Yes, I have zero goods CMR", "No"],
+    nextStep: {
+      "Yes, I have a case number": "case_number_input",
+      "Yes, I have zero goods CMR": "cmr_upload",
+      "No": "no_case_cmr",
+    },
   },
-  load_showing_no: {
-    id: "load_showing_no",
-    message: "Thank you for confirming. No further action is needed.",
-    defaultNextStep: "start",
+  case_number_input: {
+    id: "case_number_input",
+    message: "Please type the VRID which was canceled and the case number.",
+    requiresInput: true,
+    inputPlaceholder: "Enter VRID and case number",
+    defaultNextStep: "case_confirmation",
+  },
+  cmr_upload: {
+    id: "cmr_upload",
+    message: "Please send a picture of the zero goods CMR. Also, please provide the VRID which was canceled.",
+    requiresInput: true,
+    inputPlaceholder: "Enter VRID number",
+    defaultNextStep: "cmr_confirmation",
+  },
+  no_case_cmr: {
+    id: "no_case_cmr",
+    message: "You have not received a case number and you have not received zero goods CMR. Please provide the VRID which was canceled.",
+    requiresInput: true,
+    inputPlaceholder: "Enter VRID number",
+    defaultNextStep: "vrid_confirmation",
   },
   vrid_request: {
     id: "vrid_request",
-    message: "Please type VRID affected:",
+    message: "Please provide the VRID which was canceled.",
     requiresInput: true,
     inputPlaceholder: "Enter VRID number",
     defaultNextStep: "vrid_confirmation",
   },
   vrid_confirmation: {
     id: "vrid_confirmation",
-    message: "Thank you for providing the VRID. We will investigate the issue and update your app shortly.",
+    message: "Thank you. We will process your canceled VRID.",
+    defaultNextStep: "start",
+  },
+  case_confirmation: {
+    id: "case_confirmation",
+    message: "Thank you. We will process your case.",
+    defaultNextStep: "start",
+  },
+  cmr_confirmation: {
+    id: "cmr_confirmation",
+    message: "Thank you. We have received your CMR and VRID information.",
     defaultNextStep: "start",
   },
 }
@@ -91,6 +128,8 @@ export default function CaseDetail() {
   const [isWaitingForInput, setIsWaitingForInput] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState(true)
   const [newMessage, setNewMessage] = useState("")
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -227,16 +266,65 @@ export default function CaseDetail() {
         text: newMessage,
         sender: "driver"
       })
-
-      // Update case timestamp
-      const caseRef = doc(db, "cases", supportCase.id)
-      await updateDoc(caseRef, {
-        updatedAt: serverTimestamp()
-      })
-
       setNewMessage("")
     } catch (error) {
       console.error("Error sending message:", error)
+    }
+  }
+
+  const handleStatusChange = async (newStatus: "open" | "closed") => {
+    if (!supportCase) return
+    try {
+      const result = await updateCaseStatus(supportCase.id, newStatus)
+      if (result.success) {
+        setSupportCase(prev => prev ? { ...prev, status: newStatus } : null)
+      }
+    } catch (error) {
+      console.error("Error updating case status:", error)
+    }
+  }
+
+  // Add file upload handler
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !supportCase) return
+
+    setIsUploading(true)
+    try {
+      // Here you would typically upload to your storage service (e.g., Firebase Storage)
+      // For now, we'll just simulate a successful upload
+      const fileUrl = URL.createObjectURL(file)
+      
+      // Add message with attachment
+      const message: Message = {
+        id: Date.now().toString(),
+        text: "CMR Document",
+        sender: "driver",
+        createdAt: new Date(),
+        attachment: {
+          type: "image",
+          url: fileUrl
+        }
+      }
+
+      setMessages(prev => [...prev, message])
+      
+      // Move to next step
+      const nextStepId = conversationFlow[currentStep].defaultNextStep || "start"
+      setTimeout(() => {
+        const systemMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: conversationFlow[nextStepId].message,
+          sender: "system",
+          createdAt: new Date(),
+        }
+        setMessages(prev => [...prev, systemMessage])
+        setCurrentStep(nextStepId)
+      }, 500)
+    } catch (error) {
+      console.error("Error uploading file:", error)
+    } finally {
+      setIsUploading(false)
     }
   }
 
@@ -258,28 +346,36 @@ export default function CaseDetail() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="container mx-auto p-4">
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              className="text-white hover:bg-gray-800"
-              onClick={() => router.back()}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <div>
-              <h1 className="text-xl font-bold">{supportCase.title}</h1>
-              <p className="text-sm text-gray-400">
-                Case #{supportCase.id}
-              </p>
+      <div className="container mx-auto max-w-4xl p-4">
+        <header className="bg-gray-900 border-b border-gray-800 p-4">
+          <div className="container mx-auto">
+            <div className="flex items-center justify-between">
+              <Link href="/driver/dashboard" className="inline-flex items-center text-gray-400 hover:text-white">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Link>
+              <div className="text-center flex-1">
+                <h1 className="text-white text-lg font-semibold">{supportCase.title}</h1>
+                <div className="flex items-center justify-center gap-2 mt-1">
+                  <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
+                    {supportCase.status}
+                  </Badge>
+                  {supportCase.status === "closed" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleStatusChange("open")}
+                      className="text-green-500 border-green-500 hover:bg-green-500/10"
+                    >
+                      Reopen
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="w-16"></div>
             </div>
           </div>
-          <Badge variant={supportCase.status === "open" ? "destructive" : "secondary"}>
-            {supportCase.status}
-          </Badge>
-        </div>
+        </header>
 
         <Card className="bg-gray-900 border-gray-800">
           <CardContent className="p-4">
@@ -301,6 +397,15 @@ export default function CaseDetail() {
                     }`}
                   >
                     <p className="text-sm">{message.text}</p>
+                    {message.attachment && message.attachment.type === "image" && (
+                      <div className="mt-2">
+                        <img 
+                          src={message.attachment.url} 
+                          alt="CMR Document" 
+                          className="max-w-full rounded-lg"
+                        />
+                      </div>
+                    )}
                     <p className="text-xs opacity-70 mt-1">
                       {message.createdAt.toLocaleTimeString()}
                     </p>
@@ -311,18 +416,46 @@ export default function CaseDetail() {
             </div>
 
             {supportCase.status === "open" && (
-              <form onSubmit={handleSendMessage} className="flex space-x-2">
-                <Input
-                  type="text"
-                  placeholder="Type your message..."
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  className="flex-1 bg-gray-800 border-gray-700 text-white"
-                />
-                <Button type="submit" className="bg-primary text-white">
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
+              <div className="space-y-2">
+                {currentStep === "cmr_upload" ? (
+                  <div className="flex space-x-2">
+                    <Input
+                      type="text"
+                      placeholder="Enter VRID number"
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      className="flex-1 bg-gray-800 border-gray-700 text-white"
+                    />
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <Button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                      className="bg-primary text-white"
+                    >
+                      <Upload className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSendMessage} className="flex space-x-2">
+                    <Input
+                      type="text"
+                      placeholder="Type your message..."
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      className="flex-1 bg-gray-800 border-gray-700 text-white"
+                    />
+                    <Button type="submit" className="bg-primary text-white">
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </form>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
